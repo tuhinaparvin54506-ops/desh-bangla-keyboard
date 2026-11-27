@@ -1,9 +1,17 @@
 package com.deshbangla.keyboard;
 
+import android.Manifest;
+import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.inputmethodservice.InputMethodService;
+import android.media.AudioManager;
+import android.os.Bundle;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -11,6 +19,9 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.Button;
 import android.widget.LinearLayout;
+import android.widget.Toast;
+
+import java.util.ArrayList;
 
 public class BanglaIME extends InputMethodService {
 
@@ -21,7 +32,12 @@ public class BanglaIME extends InputMethodService {
     private int mode = BN;
     private int prevMode = BN;
     private boolean shift = false;
+    private boolean listening = false;
     private LinearLayout root;
+    private SpeechRecognizer recognizer;
+    private AudioManager audio;
+    private boolean mutedMusic = false;
+    private boolean mutedSystem = false;
 
     private static final String[][] BN_ROWS = {
         {"অ", "আ", "ই", "ঈ", "উ", "ঊ", "ঋ", "এ", "ঐ", "ও", "ঔ"},
@@ -65,6 +81,26 @@ public class BanglaIME extends InputMethodService {
         }
     }
 
+    @Override
+    public void onFinishInputView(boolean finishingInput) {
+        super.onFinishInputView(finishingInput);
+        if (recognizer != null && listening) {
+            recognizer.cancel();
+            listening = false;
+        }
+        unmuteBeep();
+    }
+
+    @Override
+    public void onDestroy() {
+        unmuteBeep();
+        if (recognizer != null) {
+            recognizer.destroy();
+            recognizer = null;
+        }
+        super.onDestroy();
+    }
+
     private void render() {
         root.removeAllViews();
         String[][] rows;
@@ -84,7 +120,7 @@ public class BanglaIME extends InputMethodService {
     private String[] bottomRow() {
         String first = (mode == SYM) ? "<BACK>" : "<SYM>";
         String punct = (mode == BN) ? "।" : ".";
-        return new String[]{first, "<LANG>", "<SPACE>", punct, "<DEL>", "<ENTER>"};
+        return new String[]{first, "<LANG>", "<MIC>", "<SPACE>", punct, "<DEL>", "<ENTER>"};
     }
 
     private int langTarget() {
@@ -130,7 +166,9 @@ public class BanglaIME extends InputMethodService {
         b.setGravity(Gravity.CENTER);
         boolean special = key.startsWith("<");
         b.setTextSize(TypedValue.COMPLEX_UNIT_SP, special ? 14 : 18);
-        if (special) {
+        if (key.equals("<MIC>") && listening) {
+            b.setBackground(bg("#FF9C9C", "#FF7777"));
+        } else if (special) {
             b.setBackground(bg("#B9CCEE", "#8FAADD"));
         } else {
             b.setBackground(bg("#FFFFFF", "#C8D4EA"));
@@ -158,6 +196,8 @@ public class BanglaIME extends InputMethodService {
                 return "\u232B";
             case "<ENTER>":
                 return "\u21B5";
+            case "<MIC>":
+                return listening ? "\uD83D\uDD34" : "\uD83C\uDFA4";
             case "<SPACE>":
                 if (mode == BN) {
                     return "বাংলা";
@@ -231,6 +271,9 @@ public class BanglaIME extends InputMethodService {
                 shift = false;
                 render();
                 return;
+            case "<MIC>":
+                toggleVoice();
+                return;
         }
         if (mode == EN && shift) {
             ic.commitText(key.toUpperCase(), 1);
@@ -239,6 +282,148 @@ public class BanglaIME extends InputMethodService {
             return;
         }
         ic.commitText(key, 1);
+    }
+
+    private void toast(String msg) {
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+    }
+
+    private void muteBeep() {
+        audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+        try {
+            if (!audio.isStreamMute(AudioManager.STREAM_MUSIC)) {
+                audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0);
+                mutedMusic = true;
+            }
+        } catch (Throwable t) {
+        }
+        try {
+            if (!audio.isStreamMute(AudioManager.STREAM_SYSTEM)) {
+                audio.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0);
+                mutedSystem = true;
+            }
+        } catch (Throwable t) {
+        }
+    }
+
+    private void unmuteBeep() {
+        if (audio == null) {
+            return;
+        }
+        if (mutedMusic) {
+            try {
+                audio.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0);
+            } catch (Throwable t) {
+            }
+            mutedMusic = false;
+        }
+        if (mutedSystem) {
+            try {
+                audio.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0);
+            } catch (Throwable t) {
+            }
+            mutedSystem = false;
+        }
+    }
+
+    private void toggleVoice() {
+        if (listening) {
+            if (recognizer != null) {
+                recognizer.stopListening();
+            }
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            toast("মাইক্রোফোনের অনুমতি নেই। Desh Bangla Keyboard অ্যাপটি খুলে অনুমতি দিন।");
+            Intent i = new Intent(this, SetupActivity.class);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(i);
+            return;
+        }
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            toast("এই ফোনে ভয়েস টাইপিং সেবা পাওয়া যায়নি।");
+            return;
+        }
+        startVoice();
+    }
+
+    private void startVoice() {
+        if (recognizer == null) {
+            recognizer = SpeechRecognizer.createSpeechRecognizer(this);
+            recognizer.setRecognitionListener(new RecognitionListener() {
+                @Override
+                public void onReadyForSpeech(Bundle params) {
+                }
+
+                @Override
+                public void onBeginningOfSpeech() {
+                }
+
+                @Override
+                public void onRmsChanged(float rmsdB) {
+                }
+
+                @Override
+                public void onBufferReceived(byte[] buffer) {
+                }
+
+                @Override
+                public void onEndOfSpeech() {
+                }
+
+                @Override
+                public void onPartialResults(Bundle partialResults) {
+                }
+
+                @Override
+                public void onEvent(int eventType, Bundle params) {
+                }
+
+                @Override
+                public void onError(int error) {
+                    listening = false;
+                    unmuteBeep();
+                    render();
+                    if (error == SpeechRecognizer.ERROR_NO_MATCH
+                            || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
+                        toast("কিছু শোনা যায়নি, আবার চেষ্টা করুন।");
+                    } else if (error == SpeechRecognizer.ERROR_NETWORK
+                            || error == SpeechRecognizer.ERROR_NETWORK_TIMEOUT) {
+                        toast("ইন্টারনেট সংযোগ চেক করুন।");
+                    } else {
+                        toast("ভয়েস টাইপিং ত্রুটি (কোড " + error + ")");
+                    }
+                }
+
+                @Override
+                public void onResults(Bundle results) {
+                    listening = false;
+                    unmuteBeep();
+                    ArrayList<String> list =
+                            results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                    if (list != null && !list.isEmpty()) {
+                        InputConnection ic = getCurrentInputConnection();
+                        if (ic != null) {
+                            ic.commitText(list.get(0) + " ", 1);
+                        }
+                    }
+                    render();
+                }
+            });
+        }
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "bn-IN");
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "bn-IN");
+        intent.putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, true);
+        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+        intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
+        listening = true;
+        muteBeep();
+        render();
+        recognizer.startListening(intent);
     }
 
     private StateListDrawable bg(String normal, String pressed) {
@@ -259,4 +444,4 @@ public class BanglaIME extends InputMethodService {
         return (int) TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics());
     }
-                             }
+    }
