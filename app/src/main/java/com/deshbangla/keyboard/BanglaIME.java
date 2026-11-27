@@ -165,7 +165,7 @@ public class BanglaIME extends InputMethodService {
         b.setTextColor(Color.BLACK);
         b.setGravity(Gravity.CENTER);
         boolean special = key.startsWith("<");
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, special ? 14 : 18);
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, special ? 14 : 16);
         if (key.equals("<MIC>") && listening) {
             b.setBackground(bg("#FF9C9C", "#FF7777"));
         } else if (special) {
