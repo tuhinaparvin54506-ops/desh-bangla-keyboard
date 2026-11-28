@@ -1,5 +1,4 @@
 package com.deshbangla.keyboard;
-
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -17,8 +16,11 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
-import android.widget.Button;
+import android.widget.FrameLayout;
+import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import java.util.ArrayList;
@@ -28,6 +30,17 @@ public class BanglaIME extends InputMethodService {
     private static final int BN = 0;
     private static final int EN = 1;
     private static final int SYM = 2;
+
+    // Colors (dark theme)
+    private static final String C_BG = "#0D1B1C";
+    private static final String C_KEY = "#26302F";
+    private static final String C_KEY_PRESSED = "#3C4D4A";
+    private static final String C_SPECIAL = "#1C2928";
+    private static final String C_SPECIAL_PRESSED = "#33423F";
+    private static final String C_ENTER = "#4F8478";
+    private static final String C_ENTER_PRESSED = "#6AA394";
+    private static final String C_ACCENT = "#7FCBBE";
+    private static final String C_HINT = "#9AA5A3";
 
     private int mode = BN;
     private int prevMode = BN;
@@ -45,27 +58,27 @@ public class BanglaIME extends InputMethodService {
         {"ক", "খ", "গ", "ঘ", "ঙ", "চ", "ছ", "জ", "ঝ", "ঞ"},
         {"ট", "ঠ", "ড", "ঢ", "ণ", "ত", "থ", "দ", "ধ", "ন"},
         {"প", "ফ", "ব", "ভ", "ম", "য", "র", "ল", "শ", "ষ"},
-        {"স", "হ", "\u09DC", "\u09DD", "\u09DF", "\u09CE", "\u0982", "\u0983", "\u0981"}
+        {"স", "হ", "\u09DC", "\u09DD", "\u09DF", "\u09CE", "\u0982", "\u0983", "\u0981", "<DEL>"}
     };
 
     private static final String[][] EN_ROWS = {
         {"q", "w", "e", "r", "t", "y", "u", "i", "o", "p"},
         {"a", "s", "d", "f", "g", "h", "j", "k", "l"},
-        {"<SHIFT>", "z", "x", "c", "v", "b", "n", "m"}
+        {"<SHIFT>", "z", "x", "c", "v", "b", "n", "m", "<DEL>"}
     };
 
     private static final String[][] SYM_ROWS = {
         {"1", "2", "3", "4", "5", "6", "7", "8", "9", "0"},
         {"১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯", "০"},
         {"@", "#", "$", "%", "&", "-", "+", "(", ")", "/"},
-        {"*", "\"", "'", ":", ";", "!", "?", ",", ".", "\u09F3"}
+        {"*", "\"", "'", ":", ";", "!", "?", "\u09F3", "<DEL>"}
     };
 
     @Override
     public View onCreateInputView() {
         root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setBackgroundColor(Color.parseColor("#DCE6F5"));
+        root.setBackgroundColor(Color.parseColor(C_BG));
         int p = dp(3);
         root.setPadding(p, p, p, p);
         render();
@@ -103,6 +116,7 @@ public class BanglaIME extends InputMethodService {
 
     private void render() {
         root.removeAllViews();
+        root.addView(topBar());
         String[][] rows;
         if (mode == BN) {
             rows = BN_ROWS;
@@ -111,16 +125,55 @@ public class BanglaIME extends InputMethodService {
         } else {
             rows = SYM_ROWS;
         }
-        for (String[] r : rows) {
-            addRow(r);
+        for (int i = 0; i < rows.length; i++) {
+            addRow(rows[i], i);
         }
-        addRow(bottomRow());
+        addRow(bottomRow(), -1);
+    }
+
+    private View topBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(46)));
+
+        TextView status = new TextView(this);
+        status.setText(listening ? "শুনছি... বাংলায় বলুন" : "");
+        status.setTextColor(Color.parseColor(C_ACCENT));
+        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        status.setPadding(dp(8), 0, 0, 0);
+        status.setGravity(Gravity.CENTER_VERTICAL);
+        status.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
+        bar.addView(status);
+
+        ImageButton mic = new ImageButton(this);
+        mic.setImageResource(R.drawable.ic_mic);
+        mic.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        mic.setColorFilter(Color.WHITE);
+        mic.setPadding(dp(9), dp(9), dp(9), dp(9));
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(Color.parseColor(listening ? "#E53935" : C_KEY));
+        mic.setBackground(circle);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        lp.setMargins(dp(4), dp(3), dp(6), dp(3));
+        mic.setLayoutParams(lp);
+        mic.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                toggleVoice();
+            }
+        });
+        bar.addView(mic);
+        return bar;
     }
 
     private String[] bottomRow() {
         String first = (mode == SYM) ? "<BACK>" : "<SYM>";
-        String punct = (mode == BN) ? "।" : ".";
-        return new String[]{first, "<LANG>", "<MIC>", "<SPACE>", punct, "<DEL>", "<ENTER>"};
+        String punct = (mode == BN) ? "\u0964" : ".";
+        return new String[]{first, ",", "<LANG>", "<SPACE>", punct, "<ENTER>"};
     }
 
     private int langTarget() {
@@ -133,15 +186,35 @@ public class BanglaIME extends InputMethodService {
         return (prevMode == BN) ? EN : BN;
     }
 
-    private void addRow(String[] keys) {
+    private void addRow(String[] keys, int rowIndex) {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
+        int h = (mode == BN) ? dp(42) : dp(48);
         row.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(mode == BN ? 36 : 62)));
-        for (String k : keys) {
-            row.addView(makeKey(k));
+                LinearLayout.LayoutParams.MATCH_PARENT, h));
+        boolean halfPad = (mode == EN && rowIndex == 1);
+        if (halfPad) {
+            row.addView(spacer());
+        }
+        for (int i = 0; i < keys.length; i++) {
+            String hint = null;
+            if (mode == EN && rowIndex == 0) {
+                hint = String.valueOf((i + 1) % 10);
+            }
+            boolean accent = (mode == BN && (rowIndex == 0 || rowIndex == 1));
+            row.addView(makeKey(keys[i], accent, hint));
+        }
+        if (halfPad) {
+            row.addView(spacer());
         }
         root.addView(row);
+    }
+
+    private View spacer() {
+        View v = new View(this);
+        v.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 0.5f));
+        return v;
     }
 
     private float weightOf(String k) {
@@ -154,38 +227,91 @@ public class BanglaIME extends InputMethodService {
         return 1f;
     }
 
-    private View makeKey(final String key) {
-        Button b = new Button(this);
-        b.setAllCaps(false);
-        b.setPadding(0, 0, 0, 0);
-        b.setMinWidth(0);
-        b.setMinHeight(0);
-        b.setMinimumWidth(0);
-        b.setMinimumHeight(0);
-        b.setTextColor(Color.BLACK);
-        b.setGravity(Gravity.CENTER);
-        boolean special = key.startsWith("<");
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, special ? 14 : (mode == EN ? 26 : 16));
-        if (key.equals("<MIC>") && listening) {
-            b.setBackground(bg("#FF9C9C", "#FF7777"));
-        } else if (special) {
-            b.setBackground(bg("#B9CCEE", "#8FAADD"));
-        } else {
-            b.setBackground(bg("#FFFFFF", "#C8D4EA"));
+    private float textSizeOf(String key) {
+        if (key.equals("<SPACE>")) {
+            return 14f;
         }
-        b.setText(labelOf(key));
+        if (key.equals("<SHIFT>") || key.equals("<DEL>") || key.equals("<ENTER>")) {
+            return 22f;
+        }
+        if (key.startsWith("<")) {
+            return 16f;
+        }
+        if (mode == BN) {
+            return 19f;
+        }
+        if (mode == EN) {
+            return 22f;
+        }
+        return 20f;
+    }
+
+    private View makeKey(final String key, boolean accent, final String hint) {
+        FrameLayout f = new FrameLayout(this);
+        f.setClickable(true);
+        boolean special = key.startsWith("<");
+        if (key.equals("<ENTER>")) {
+            f.setBackground(bg(C_ENTER, C_ENTER_PRESSED));
+        } else if (special) {
+            f.setBackground(bg(C_SPECIAL, C_SPECIAL_PRESSED));
+        } else {
+            f.setBackground(bg(C_KEY, C_KEY_PRESSED));
+        }
+
+        TextView t = new TextView(this);
+        t.setText(labelOf(key));
+        t.setGravity(Gravity.CENTER);
+        t.setIncludeFontPadding(false);
+        t.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeOf(key));
+        if (key.equals("<SPACE>")) {
+            t.setTextColor(Color.parseColor(C_HINT));
+        } else if (accent) {
+            t.setTextColor(Color.parseColor(C_ACCENT));
+        } else {
+            t.setTextColor(Color.WHITE);
+        }
+        t.setLayoutParams(new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        f.addView(t);
+
+        if (hint != null) {
+            TextView h = new TextView(this);
+            h.setText(hint);
+            h.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+            h.setTextColor(Color.parseColor(C_HINT));
+            h.setIncludeFontPadding(false);
+            FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(
+                    FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT,
+                    Gravity.TOP | Gravity.END);
+            hp.setMargins(0, dp(3), dp(5), 0);
+            h.setLayoutParams(hp);
+            f.addView(h);
+        }
+
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, weightOf(key));
         int m = dp(2);
         lp.setMargins(m, m, m, m);
-        b.setLayoutParams(lp);
-        b.setOnClickListener(new View.OnClickListener() {
+        f.setLayoutParams(lp);
+        f.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 handleKey(key);
             }
         });
-        return b;
+        if (hint != null) {
+            f.setOnLongClickListener(new View.OnLongClickListener() {
+                @Override
+                public boolean onLongClick(View v) {
+                    InputConnection ic = getCurrentInputConnection();
+                    if (ic != null) {
+                        ic.commitText(hint, 1);
+                    }
+                    return true;
+                }
+            });
+        }
+        return f;
     }
 
     private String labelOf(String key) {
@@ -196,18 +322,10 @@ public class BanglaIME extends InputMethodService {
                 return "\u232B";
             case "<ENTER>":
                 return "\u21B5";
-            case "<MIC>":
-                return listening ? "\uD83D\uDD34" : "\uD83C\uDFA4";
             case "<SPACE>":
-                if (mode == BN) {
-                    return "বাংলা";
-                }
-                if (mode == EN) {
-                    return "English";
-                }
-                return " ";
+                return "Desh Keyboard";
             case "<SYM>":
-                return "123";
+                return "?123";
             case "<BACK>":
                 return (prevMode == BN) ? "অআ" : "ABC";
             case "<LANG>":
@@ -270,9 +388,6 @@ public class BanglaIME extends InputMethodService {
                 mode = langTarget();
                 shift = false;
                 render();
-                return;
-            case "<MIC>":
-                toggleVoice();
                 return;
         }
         if (mode == EN && shift) {
@@ -436,7 +551,7 @@ public class BanglaIME extends InputMethodService {
     private GradientDrawable shape(String color) {
         GradientDrawable g = new GradientDrawable();
         g.setColor(Color.parseColor(color));
-        g.setCornerRadius(dp(6));
+        g.setCornerRadius(dp(8));
         return g;
     }
 
@@ -444,4 +559,9 @@ public class BanglaIME extends InputMethodService {
         return (int) TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics());
     }
-    }
+            }
+    
+        
+                
+
+                
