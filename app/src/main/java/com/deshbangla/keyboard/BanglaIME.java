@@ -14,6 +14,7 @@ import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
@@ -725,6 +726,31 @@ public class BanglaIME extends InputMethodService {
                 handleKey(key);
             }
         });
+        if (key.equals("<DEL>")) {
+            final View fk = f;
+            final Runnable repeat = new Runnable() {
+                @Override
+                public void run() {
+                    handleKey("<DEL>");
+                    fk.postDelayed(this, 45);
+                }
+            };
+            f.setOnTouchListener(new View.OnTouchListener() {
+                @Override
+                public boolean onTouch(View v, MotionEvent ev) {
+                    int a = ev.getActionMasked();
+                    if (a == MotionEvent.ACTION_DOWN) {
+                        v.setPressed(true);
+                        handleKey("<DEL>");
+                        v.postDelayed(repeat, 320);
+                    } else if (a == MotionEvent.ACTION_UP || a == MotionEvent.ACTION_CANCEL) {
+                        v.setPressed(false);
+                        v.removeCallbacks(repeat);
+                    }
+                    return true;
+                }
+            });
+        }
         if (hint != null) {
             f.setOnLongClickListener(new View.OnLongClickListener() {
                 @Override
