@@ -61,6 +61,7 @@ public class BanglaIME extends InputMethodService {
     private boolean trOn = false;
     private StringBuilder bnBuf = new StringBuilder();
     private TextView trPreview;
+    private String trVoiceText = "";
     private LinearLayout root;
     private SpeechRecognizer recognizer;
     private AudioManager audio;
@@ -366,11 +367,16 @@ public class BanglaIME extends InputMethodService {
         mic.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                if (listening) {
+                    if (recognizer != null) {
+                        recognizer.stopListening();
+                    }
+                    return;
+                }
                 if (!voiceReady()) {
                     return;
                 }
-                voiceLang = VL_BANGLISH;
-                voiceBar = true;
+                voiceLang = VL_BN;
                 startVoice();
             }
         });
@@ -419,6 +425,12 @@ public class BanglaIME extends InputMethodService {
         if (bnBuf.length() > 0) {
             trPreview.setText(bnBuf.toString());
             trPreview.setTextColor(Color.WHITE);
+        } else if (listening) {
+            trPreview.setText(statusMsg);
+            trPreview.setTextColor(Color.parseColor(C_ACCENT));
+        } else if (trVoiceText.length() > 0) {
+            trPreview.setText(trVoiceText);
+            trPreview.setTextColor(Color.WHITE);
         } else {
             trPreview.setText("বাংলা টাইপ করুন, Banglish লেখা হবে।");
             trPreview.setTextColor(Color.parseColor(C_HINT));
@@ -428,6 +440,7 @@ public class BanglaIME extends InputMethodService {
     private void openTranslit() {
         trOn = true;
         bnBuf.setLength(0);
+        trVoiceText = "";
         if (mode != BN) {
             mode = BN;
             shift = false;
@@ -436,6 +449,12 @@ public class BanglaIME extends InputMethodService {
     }
 
     private void closeTranslit() {
+        if (recognizer != null && listening) {
+            recognizer.cancel();
+            listening = false;
+            unmuteBeep();
+        }
+        trVoiceText = "";
         InputConnection ic = getCurrentInputConnection();
         if (ic != null && bnBuf.length() > 0) {
             ic.finishComposingText();
@@ -450,6 +469,7 @@ public class BanglaIME extends InputMethodService {
         if (key.length() == 1) {
             char c = key.charAt(0);
             if (c >= '\u0980' && c <= '\u09FF' && c != '\u0964') {
+                trVoiceText = "";
                 bnBuf.append(c);
                 ic.setComposingText(toBanglish(bnBuf.toString()), 1);
                 updatePreview();
@@ -784,6 +804,13 @@ public class BanglaIME extends InputMethodService {
         startVoice();
     }
 
+    private String capFirst(String t) {
+        if (t.length() == 0) {
+            return t;
+        }
+        return Character.toUpperCase(t.charAt(0)) + t.substring(1);
+    }
+
     private void closeVoice() {
         if (recognizer != null && listening) {
             recognizer.cancel();
@@ -882,12 +909,23 @@ public class BanglaIME extends InputMethodService {
                             results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                     if (list != null && !list.isEmpty()) {
                         String text = list.get(0);
-                        if (voiceLang == VL_BANGLISH) {
-                            text = toBanglish(text);
-                        }
                         InputConnection ic = getCurrentInputConnection();
-                        if (ic != null) {
-                            ic.commitText(text + " ", 1);
+                        if (trOn && !voiceBar) {
+                            trVoiceText = text;
+                            if (ic != null) {
+                                if (bnBuf.length() > 0) {
+                                    ic.finishComposingText();
+                                    bnBuf.setLength(0);
+                                }
+                                ic.commitText(capFirst(toBanglish(text)) + " ", 1);
+                            }
+                        } else {
+                            if (voiceLang == VL_BANGLISH) {
+                                text = toBanglish(text);
+                            }
+                            if (ic != null) {
+                                ic.commitText(text + " ", 1);
+                            }
                         }
                     }
                     statusMsg = MSG_TAP;
@@ -1036,3 +1074,4 @@ public class BanglaIME extends InputMethodService {
     }
             }
      
+
