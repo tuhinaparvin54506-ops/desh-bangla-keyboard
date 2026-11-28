@@ -58,6 +58,9 @@ public class BanglaIME extends InputMethodService {
     private boolean voiceBar = false;
     private int voiceLang = VL_BN;
     private String statusMsg = MSG_TAP;
+    private boolean trOn = false;
+    private StringBuilder bnBuf = new StringBuilder();
+    private TextView trPreview;
     private LinearLayout root;
     private SpeechRecognizer recognizer;
     private AudioManager audio;
@@ -114,6 +117,7 @@ public class BanglaIME extends InputMethodService {
     @Override
     public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
+        bnBuf.setLength(0);
         shift = false;
         voiceBar = false;
         statusMsg = MSG_TAP;
@@ -125,6 +129,7 @@ public class BanglaIME extends InputMethodService {
     @Override
     public void onFinishInputView(boolean finishingInput) {
         super.onFinishInputView(finishingInput);
+        bnBuf.setLength(0);
         if (recognizer != null && listening) {
             recognizer.cancel();
         }
@@ -146,7 +151,7 @@ public class BanglaIME extends InputMethodService {
 
     private void render() {
         root.removeAllViews();
-        root.addView(voiceBar ? voiceTop() : topBar());
+        root.addView(voiceBar ? voiceTop() : (trOn ? translitTop() : topBar()));
         String[][] rows;
         if (mode == BN) {
             rows = BN_ROWS;
@@ -188,6 +193,7 @@ public class BanglaIME extends InputMethodService {
         space.setLayoutParams(new LinearLayout.LayoutParams(
                 0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
         bar.addView(space);
+        bar.addView(makeLogo());
 
         ImageButton mic = makeMic();
         mic.setOnClickListener(new View.OnClickListener() {
@@ -292,6 +298,188 @@ public class BanglaIME extends InputMethodService {
 
         box.addView(row);
         return box;
+    }
+
+    // ---------- Banglish typing bar (type Bangla, get English letters) ----------
+
+    private View makeLogo() {
+        TextView logo = new TextView(this);
+        logo.setText("A\u6587");
+        logo.setTextColor(Color.WHITE);
+        logo.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        logo.setGravity(Gravity.CENTER);
+        logo.setBackground(pill(C_KEY, 12));
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(40), dp(34));
+        lp.setMargins(dp(4), dp(3), dp(4), dp(3));
+        logo.setLayoutParams(lp);
+        logo.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                openTranslit();
+            }
+        });
+        return logo;
+    }
+
+    private TextView trPill(String text, boolean strong) {
+        TextView tv = new TextView(this);
+        tv.setText(text);
+        tv.setGravity(Gravity.CENTER);
+        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        tv.setPadding(dp(14), 0, dp(14), 0);
+        if (strong) {
+            tv.setBackground(pill(C_ACCENT, 18));
+            tv.setTextColor(Color.parseColor(C_BG));
+        } else {
+            tv.setBackground(pill(C_SPECIAL, 18));
+            tv.setTextColor(Color.WHITE);
+        }
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.WRAP_CONTENT, dp(36));
+        lp.setMargins(dp(3), 0, dp(3), 0);
+        tv.setLayoutParams(lp);
+        return tv;
+    }
+
+    private View translitTop() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(44)));
+
+        row.addView(trPill("বাংলা", false));
+        row.addView(trPill("\u21C4", false));
+        row.addView(trPill("Banglish", true));
+
+        View sp = new View(this);
+        sp.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
+        row.addView(sp);
+
+        ImageButton mic = makeMic();
+        mic.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (!voiceReady()) {
+                    return;
+                }
+                voiceLang = VL_BANGLISH;
+                voiceBar = true;
+                startVoice();
+            }
+        });
+        row.addView(mic);
+
+        TextView close = new TextView(this);
+        close.setText("\u2715");
+        close.setTextColor(Color.WHITE);
+        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16);
+        close.setGravity(Gravity.CENTER);
+        GradientDrawable circle = new GradientDrawable();
+        circle.setShape(GradientDrawable.OVAL);
+        circle.setColor(Color.parseColor(C_KEY));
+        close.setBackground(circle);
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        cp.setMargins(dp(2), dp(3), dp(6), dp(3));
+        close.setLayoutParams(cp);
+        close.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                closeTranslit();
+            }
+        });
+        row.addView(close);
+        box.addView(row);
+
+        trPreview = new TextView(this);
+        trPreview.setGravity(Gravity.CENTER_VERTICAL);
+        trPreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        trPreview.setSingleLine(true);
+        trPreview.setPadding(dp(14), 0, dp(14), 0);
+        trPreview.setBackground(pill(C_SPECIAL, 17));
+        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(34));
+        pp.setMargins(dp(4), 0, dp(4), dp(3));
+        trPreview.setLayoutParams(pp);
+        updatePreview();
+        box.addView(trPreview);
+        return box;
+    }
+
+    private void updatePreview() {
+        if (trPreview == null) {
+            return;
+        }
+        if (bnBuf.length() > 0) {
+            trPreview.setText(bnBuf.toString());
+            trPreview.setTextColor(Color.WHITE);
+        } else {
+            trPreview.setText("বাংলা টাইপ করুন, Banglish লেখা হবে।");
+            trPreview.setTextColor(Color.parseColor(C_HINT));
+        }
+    }
+
+    private void openTranslit() {
+        trOn = true;
+        bnBuf.setLength(0);
+        if (mode != BN) {
+            mode = BN;
+            shift = false;
+        }
+        render();
+    }
+
+    private void closeTranslit() {
+        InputConnection ic = getCurrentInputConnection();
+        if (ic != null && bnBuf.length() > 0) {
+            ic.finishComposingText();
+        }
+        bnBuf.setLength(0);
+        trOn = false;
+        render();
+    }
+
+    // true = কী এখানেই সামলানো হয়েছে, false = সাধারণ নিয়মে চলবে
+    private boolean handleTranslit(InputConnection ic, String key) {
+        if (key.length() == 1) {
+            char c = key.charAt(0);
+            if (c >= '\u0980' && c <= '\u09FF' && c != '\u0964') {
+                bnBuf.append(c);
+                ic.setComposingText(toBanglish(bnBuf.toString()), 1);
+                updatePreview();
+                return true;
+            }
+        }
+        if (key.equals("<DEL>")) {
+            if (bnBuf.length() > 0) {
+                bnBuf.setLength(bnBuf.length() - 1);
+                if (bnBuf.length() == 0) {
+                    ic.setComposingText("", 1);
+                    ic.finishComposingText();
+                } else {
+                    ic.setComposingText(toBanglish(bnBuf.toString()), 1);
+                }
+                updatePreview();
+                return true;
+            }
+            return false;
+        }
+        if (bnBuf.length() > 0) {
+            ic.finishComposingText();
+            bnBuf.setLength(0);
+            updatePreview();
+        }
+        if (key.equals("\u0964")) {
+            ic.commitText(".", 1);
+            return true;
+        }
+        return false;
     }
 
     private String[] bottomRow() {
@@ -475,6 +663,9 @@ public class BanglaIME extends InputMethodService {
     private void handleKey(String key) {
         InputConnection ic = getCurrentInputConnection();
         if (ic == null) {
+            return;
+        }
+        if (trOn && mode == BN && handleTranslit(ic, key)) {
             return;
         }
         switch (key) {
@@ -844,3 +1035,4 @@ public class BanglaIME extends InputMethodService {
                 TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics());
     }
             }
+     
