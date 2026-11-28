@@ -21,6 +21,7 @@ import android.widget.FrameLayout;
 import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -31,6 +32,7 @@ public class BanglaIME extends InputMethodService {
     private static final int BN = 0;
     private static final int EN = 1;
     private static final int SYM = 2;
+    private static final int EMO = 3;
 
     private static final int VL_EN = 0;
     private static final int VL_BN = 1;
@@ -59,6 +61,7 @@ public class BanglaIME extends InputMethodService {
     private int voiceLang = VL_BN;
     private String statusMsg = MSG_TAP;
     private boolean trOn = false;
+    private int emoCat = 0;
     private StringBuilder bnBuf = new StringBuilder();
     private TextView trPreview;
     private String trVoiceText = "";
@@ -88,6 +91,16 @@ public class BanglaIME extends InputMethodService {
         {"১", "২", "৩", "৪", "৫", "৬", "৭", "৮", "৯", "০"},
         {"@", "#", "$", "%", "&", "-", "+", "(", ")", "/"},
         {"*", "\"", "'", ":", ";", "!", "?", "\u09F3", "<DEL>"}
+    };
+
+
+    // Emoji data (space separated)
+    private static final String[] EMO_TABS = {"\uD83D\uDE00", "\uD83D\uDC4D", "\uD83D\uDC36", "\uD83C\uDF4E"};
+    private static final String[] EMO_LISTS = {
+        "😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 🙃 😉 😍 🥰 😘 😗 😋 😜 🤪 😎 🤩 🥳 😏 😒 😞 😔 😟 😕 🙁 😣 😖 😫 😩 🥺 😢 😭 😤 😠 😡 🤬 😱 😨 😰 😥 😓 🤗 🤔 🤭 🤫 😶 😐 😑 😬 🙄 😯 😴 🤤 😷 🤒 🤕 🤢 🥵 🥶 🤯 🥴 😵",
+        "👍 👎 👌 ✌ 🤞 🤟 🤘 🤙 👈 👉 👆 👇 ☝ ✋ 🤚 🖐 👋 👏 🙌 👐 🤲 🤝 🙏 ✍ 💪 ❤ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣ 💕 💞 💓 💗 💖 💘 💝 💯 ✨ 🔥 ⭐ 🌟 🎉 🎊",
+        "🐶 🐱 🐭 🐹 🐰 🦊 🐻 🐼 🐨 🐯 🦁 🐮 🐷 🐸 🐵 🐔 🐧 🐦 🐤 🦆 🦅 🦉 🐺 🐴 🦄 🐝 🦋 🐌 🐞 🐢 🐍 🐙 🐠 🐬 🐳 🌸 🌹 🌻 🌼 🌷 🌱 🌴 🌳 🍀 🍁 🌈 ☀ 🌙 ☁ ⚡ ❄ 🌊",
+        "🍎 🍊 🍌 🍉 🍇 🍓 🍒 🍑 🥭 🍍 🥥 🥝 🍅 🥕 🌽 🍞 🧀 🍗 🍔 🍟 🍕 🌭 🥪 🌮 🍜 🍛 🍣 🍦 🍩 🍪 🎂 🍫 🍬 ☕ 🍵 🥤 ⚽ 🏏 🎮 🎵 🎧 📱 💻 📷 🎁 💰 📚 ✏ 🔑 🏠 🚗 ✈ ⏰"
     };
 
     // Banglish (Bangla -> English letters) tables
@@ -153,6 +166,11 @@ public class BanglaIME extends InputMethodService {
     private void render() {
         root.removeAllViews();
         root.addView(voiceBar ? voiceTop() : (trOn ? translitTop() : topBar()));
+        if (mode == EMO) {
+            root.addView(emojiPanel());
+            addRow(new String[]{"<BACK>", "<SPACE>", "<DEL>", "<ENTER>"}, -1);
+            return;
+        }
         String[][] rows;
         if (mode == BN) {
             rows = BN_ROWS;
@@ -205,6 +223,83 @@ public class BanglaIME extends InputMethodService {
         });
         bar.addView(mic);
         return bar;
+    }
+
+
+    // ---------- Emoji panel ----------
+
+    private View emojiPanel() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout tabs = new LinearLayout(this);
+        tabs.setOrientation(LinearLayout.HORIZONTAL);
+        tabs.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(40)));
+        for (int i = 0; i < EMO_TABS.length; i++) {
+            TextView tv = new TextView(this);
+            tv.setText(EMO_TABS[i]);
+            tv.setGravity(Gravity.CENTER);
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.MATCH_PARENT, 1f);
+            tp.setMargins(dp(3), dp(2), dp(3), dp(2));
+            tv.setLayoutParams(tp);
+            if (i == emoCat) {
+                tv.setBackground(pill(C_KEY, 10));
+            }
+            final int idx = i;
+            tv.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    emoCat = idx;
+                    render();
+                }
+            });
+            tabs.addView(tv);
+        }
+        box.addView(tabs);
+
+        ScrollView sv = new ScrollView(this);
+        sv.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(176)));
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        String[] list = EMO_LISTS[emoCat].split(" ");
+        int perRow = 8;
+        for (int i = 0; i < list.length; i += perRow) {
+            LinearLayout r = new LinearLayout(this);
+            r.setOrientation(LinearLayout.HORIZONTAL);
+            r.setLayoutParams(new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, dp(44)));
+            for (int j = i; j < i + perRow; j++) {
+                TextView e = new TextView(this);
+                e.setGravity(Gravity.CENTER);
+                e.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+                e.setLayoutParams(new LinearLayout.LayoutParams(
+                        0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
+                if (j < list.length) {
+                    final String em = list[j];
+                    e.setText(em);
+                    e.setOnClickListener(new View.OnClickListener() {
+                        @Override
+                        public void onClick(View v) {
+                            InputConnection ic = getCurrentInputConnection();
+                            if (ic != null) {
+                                ic.commitText(em, 1);
+                            }
+                        }
+                    });
+                }
+                r.addView(e);
+            }
+            col.addView(r);
+        }
+        sv.addView(col);
+        box.addView(sv);
+        return box;
     }
 
     private GradientDrawable pill(String color, int radiusDp) {
@@ -501,7 +596,7 @@ public class BanglaIME extends InputMethodService {
     private String[] bottomRow() {
         String first = (mode == SYM) ? "<BACK>" : "<SYM>";
         String punct = (mode == BN) ? "\u0964" : ".";
-        return new String[]{first, ",", "<SPACE>", punct, "<ENTER>"};
+        return new String[]{first, "<EMOJI>", ",", "<SPACE>", punct, "<ENTER>"};
     }
 
     private int langTarget() {
@@ -558,6 +653,9 @@ public class BanglaIME extends InputMethodService {
     private float textSizeOf(String key) {
         if (key.equals("<SPACE>")) {
             return 14f;
+        }
+        if (key.equals("<EMOJI>")) {
+            return 20f;
         }
         if (key.equals("<SHIFT>") || key.equals("<DEL>") || key.equals("<ENTER>")) {
             return 22f;
@@ -654,6 +752,8 @@ public class BanglaIME extends InputMethodService {
                 return "Desh Keyboard";
             case "<SYM>":
                 return "?123";
+            case "<EMOJI>":
+                return "\uD83D\uDE0A";
             case "<BACK>":
                 return (prevMode == BN) ? "অআ" : "ABC";
             case "<LANG>":
@@ -709,6 +809,13 @@ public class BanglaIME extends InputMethodService {
             case "<SYM>":
                 prevMode = mode;
                 mode = SYM;
+                render();
+                return;
+            case "<EMOJI>":
+                if (mode != EMO) {
+                    prevMode = mode;
+                }
+                mode = EMO;
                 render();
                 return;
             case "<BACK>":
@@ -1066,5 +1173,5 @@ public class BanglaIME extends InputMethodService {
         return (int) TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics());
     }
-    }
-
+            }
+     
