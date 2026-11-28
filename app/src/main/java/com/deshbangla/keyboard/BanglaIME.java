@@ -1,4 +1,5 @@
 package com.deshbangla.keyboard;
+
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -31,6 +32,14 @@ public class BanglaIME extends InputMethodService {
     private static final int EN = 1;
     private static final int SYM = 2;
 
+    private static final int VL_EN = 0;
+    private static final int VL_BN = 1;
+    private static final int VL_BANGLISH = 2;
+
+    private static final String MSG_TAP = "মাইক টিপে বলুন";
+    private static final String MSG_WAIT = "অনুগ্রহ করে অপেক্ষা করুন...";
+    private static final String MSG_SPEAK = "এখন বলুন...";
+
     // Colors (dark theme)
     private static final String C_BG = "#0D1B1C";
     private static final String C_KEY = "#26302F";
@@ -46,6 +55,9 @@ public class BanglaIME extends InputMethodService {
     private int prevMode = BN;
     private boolean shift = false;
     private boolean listening = false;
+    private boolean voiceBar = false;
+    private int voiceLang = VL_BN;
+    private String statusMsg = MSG_TAP;
     private LinearLayout root;
     private SpeechRecognizer recognizer;
     private AudioManager audio;
@@ -74,6 +86,20 @@ public class BanglaIME extends InputMethodService {
         {"*", "\"", "'", ":", ";", "!", "?", "\u09F3", "<DEL>"}
     };
 
+    // Banglish (Bangla -> English letters) tables
+    private static final String CONS = "কখগঘঙচছজঝঞটঠডঢণতথদধনপফবভমযরলশষসহ\u09DC\u09DD\u09DF\u09CE";
+    private static final String[] CONS_R = {
+        "k", "kh", "g", "gh", "ng", "ch", "chh", "j", "jh", "n",
+        "t", "th", "d", "dh", "n", "t", "th", "d", "dh", "n",
+        "p", "f", "b", "bh", "m", "j", "r", "l", "sh", "sh",
+        "s", "h", "r", "rh", "y", "t"
+    };
+    private static final String VOW_I = "অআইঈউঊঋএঐওঔ";
+    private static final String[] VOW_I_R = {"o", "a", "i", "i", "u", "u", "ri", "e", "oi", "o", "ou"};
+    private static final String VOW_S = "\u09BE\u09BF\u09C0\u09C1\u09C2\u09C3\u09C7\u09C8\u09CB\u09CC";
+    private static final String[] VOW_S_R = {"a", "i", "i", "u", "u", "ri", "e", "oi", "o", "ou"};
+    private static final String DIG = "০১২৩৪৫৬৭৮৯";
+
     @Override
     public View onCreateInputView() {
         root = new LinearLayout(this);
@@ -89,6 +115,8 @@ public class BanglaIME extends InputMethodService {
     public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
         shift = false;
+        voiceBar = false;
+        statusMsg = MSG_TAP;
         if (root != null) {
             render();
         }
@@ -99,8 +127,10 @@ public class BanglaIME extends InputMethodService {
         super.onFinishInputView(finishingInput);
         if (recognizer != null && listening) {
             recognizer.cancel();
-            listening = false;
         }
+        listening = false;
+        voiceBar = false;
+        statusMsg = MSG_TAP;
         unmuteBeep();
     }
 
@@ -116,7 +146,7 @@ public class BanglaIME extends InputMethodService {
 
     private void render() {
         root.removeAllViews();
-        root.addView(topBar());
+        root.addView(voiceBar ? voiceTop() : topBar());
         String[][] rows;
         if (mode == BN) {
             rows = BN_ROWS;
@@ -131,23 +161,7 @@ public class BanglaIME extends InputMethodService {
         addRow(bottomRow(), -1);
     }
 
-    private View topBar() {
-        LinearLayout bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(46)));
-
-        TextView status = new TextView(this);
-        status.setText(listening ? "শুনছি... বাংলায় বলুন" : "");
-        status.setTextColor(Color.parseColor(C_ACCENT));
-        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
-        status.setPadding(dp(8), 0, 0, 0);
-        status.setGravity(Gravity.CENTER_VERTICAL);
-        status.setLayoutParams(new LinearLayout.LayoutParams(
-                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
-        bar.addView(status);
-
+    private ImageButton makeMic() {
         ImageButton mic = new ImageButton(this);
         mic.setImageResource(R.drawable.ic_mic);
         mic.setScaleType(ImageView.ScaleType.FIT_CENTER);
@@ -160,14 +174,124 @@ public class BanglaIME extends InputMethodService {
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(40), dp(40));
         lp.setMargins(dp(4), dp(3), dp(6), dp(3));
         mic.setLayoutParams(lp);
+        return mic;
+    }
+
+    private View topBar() {
+        LinearLayout bar = new LinearLayout(this);
+        bar.setOrientation(LinearLayout.HORIZONTAL);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(46)));
+
+        View space = new View(this);
+        space.setLayoutParams(new LinearLayout.LayoutParams(
+                0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
+        bar.addView(space);
+
+        ImageButton mic = makeMic();
         mic.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                toggleVoice();
+                openVoice();
             }
         });
         bar.addView(mic);
         return bar;
+    }
+
+    private GradientDrawable pill(String color, int radiusDp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(Color.parseColor(color));
+        g.setCornerRadius(dp(radiusDp));
+        return g;
+    }
+
+    private View voiceTop() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+
+        TextView st = new TextView(this);
+        st.setText(statusMsg);
+        st.setTextColor(Color.parseColor(C_ACCENT));
+        st.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        st.setGravity(Gravity.CENTER);
+        st.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(20)));
+        box.addView(st);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setLayoutParams(new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(46)));
+
+        TextView back = new TextView(this);
+        back.setText("\u2190");
+        back.setTextSize(TypedValue.COMPLEX_UNIT_SP, 24);
+        back.setTextColor(Color.WHITE);
+        back.setGravity(Gravity.CENTER);
+        back.setLayoutParams(new LinearLayout.LayoutParams(
+                dp(44), LinearLayout.LayoutParams.MATCH_PARENT));
+        back.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                closeVoice();
+            }
+        });
+        row.addView(back);
+
+        LinearLayout seg = new LinearLayout(this);
+        seg.setOrientation(LinearLayout.HORIZONTAL);
+        seg.setBackground(pill(C_SPECIAL, 19));
+        seg.setPadding(dp(3), dp(3), dp(3), dp(3));
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, dp(38), 1f);
+        sp.setMargins(dp(6), 0, dp(6), 0);
+        seg.setLayoutParams(sp);
+        String[] names = {"English", "বাংলা", "Banglish"};
+        for (int i = 0; i < names.length; i++) {
+            TextView tv = new TextView(this);
+            tv.setText(names[i]);
+            tv.setGravity(Gravity.CENTER);
+            tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+            tv.setLayoutParams(new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.MATCH_PARENT, 1f));
+            if (voiceLang == i) {
+                tv.setBackground(pill(C_ACCENT, 16));
+                tv.setTextColor(Color.parseColor(C_BG));
+            } else {
+                tv.setTextColor(Color.WHITE);
+            }
+            final int idx = i;
+            tv.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    setVoiceLang(idx);
+                }
+            });
+            seg.addView(tv);
+        }
+        row.addView(seg);
+
+        ImageButton mic = makeMic();
+        mic.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (listening) {
+                    if (recognizer != null) {
+                        recognizer.stopListening();
+                    }
+                } else if (voiceReady()) {
+                    startVoice();
+                }
+            }
+        });
+        row.addView(mic);
+
+        box.addView(row);
+        return box;
     }
 
     private String[] bottomRow() {
@@ -441,26 +565,68 @@ public class BanglaIME extends InputMethodService {
         }
     }
 
-    private void toggleVoice() {
-        if (listening) {
-            if (recognizer != null) {
-                recognizer.stopListening();
-            }
-            return;
-        }
+    // ---------- Voice ----------
+
+    private boolean voiceReady() {
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO)
                 != PackageManager.PERMISSION_GRANTED) {
             toast("মাইক্রোফোনের অনুমতি নেই। Desh Bangla Keyboard অ্যাপটি খুলে অনুমতি দিন।");
             Intent i = new Intent(this, SetupActivity.class);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i);
-            return;
+            return false;
         }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             toast("এই ফোনে ভয়েস টাইপিং সেবা পাওয়া যায়নি।");
+            return false;
+        }
+        return true;
+    }
+
+    private void openVoice() {
+        if (!voiceReady()) {
             return;
         }
+        int cur = (mode == SYM) ? prevMode : mode;
+        voiceLang = (cur == EN) ? VL_EN : VL_BN;
+        voiceBar = true;
         startVoice();
+    }
+
+    private void closeVoice() {
+        if (recognizer != null && listening) {
+            recognizer.cancel();
+        }
+        listening = false;
+        unmuteBeep();
+        voiceBar = false;
+        statusMsg = MSG_TAP;
+        render();
+    }
+
+    private void setVoiceLang(int l) {
+        if (l == voiceLang) {
+            return;
+        }
+        voiceLang = l;
+        if (listening) {
+            if (recognizer != null) {
+                recognizer.cancel();
+            }
+            listening = false;
+            statusMsg = MSG_WAIT;
+            render();
+            root.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    if (voiceBar && !listening) {
+                        startVoice();
+                    }
+                }
+            }, 350);
+        } else {
+            render();
+        }
     }
 
     private void startVoice() {
@@ -469,6 +635,8 @@ public class BanglaIME extends InputMethodService {
             recognizer.setRecognitionListener(new RecognitionListener() {
                 @Override
                 public void onReadyForSpeech(Bundle params) {
+                    statusMsg = MSG_SPEAK;
+                    render();
                 }
 
                 @Override
@@ -499,7 +667,11 @@ public class BanglaIME extends InputMethodService {
                 public void onError(int error) {
                     listening = false;
                     unmuteBeep();
+                    statusMsg = MSG_TAP;
                     render();
+                    if (error == SpeechRecognizer.ERROR_CLIENT) {
+                        return;
+                    }
                     if (error == SpeechRecognizer.ERROR_NO_MATCH
                             || error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
                         toast("কিছু শোনা যায়নি, আবার চেষ্টা করুন।");
@@ -518,27 +690,139 @@ public class BanglaIME extends InputMethodService {
                     ArrayList<String> list =
                             results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                     if (list != null && !list.isEmpty()) {
+                        String text = list.get(0);
+                        if (voiceLang == VL_BANGLISH) {
+                            text = toBanglish(text);
+                        }
                         InputConnection ic = getCurrentInputConnection();
                         if (ic != null) {
-                            ic.commitText(list.get(0) + " ", 1);
+                            ic.commitText(text + " ", 1);
                         }
                     }
+                    statusMsg = MSG_TAP;
                     render();
                 }
             });
         }
+        String lang = (voiceLang == VL_EN) ? "en-IN" : "bn-IN";
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "bn-IN");
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "bn-IN");
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, lang);
         intent.putExtra(RecognizerIntent.EXTRA_ONLY_RETURN_LANGUAGE_PREFERENCE, true);
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
         intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1);
         listening = true;
+        statusMsg = MSG_WAIT;
         muteBeep();
         render();
         recognizer.startListening(intent);
+    }
+
+    // ---------- Banglish converter (approximate) ----------
+
+    private String toBanglish(String s) {
+        StringBuilder out = new StringBuilder();
+        StringBuilder run = new StringBuilder();
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c >= '\u0980' && c <= '\u09FF' && c != '\u0964') {
+                run.append(c);
+            } else {
+                if (run.length() > 0) {
+                    out.append(bnWord(run.toString()));
+                    run.setLength(0);
+                }
+                if (c == '\u0964') {
+                    out.append('.');
+                } else {
+                    out.append(c);
+                }
+            }
+        }
+        if (run.length() > 0) {
+            out.append(bnWord(run.toString()));
+        }
+        return out.toString();
+    }
+
+    private String bnWord(String w) {
+        ArrayList<String> txt = new ArrayList<String>();
+        ArrayList<Integer> typ = new ArrayList<Integer>();
+        int n = w.length();
+        int i = 0;
+        while (i < n) {
+            char c = w.charAt(i);
+            int ci = CONS.indexOf(c);
+            if (ci >= 0) {
+                String r = CONS_R[ci];
+                int j = i + 1;
+                if (j < n && w.charAt(j) == '\u09BC') {
+                    if (c == '\u09A1') {
+                        r = "r";
+                    } else if (c == '\u09A2') {
+                        r = "rh";
+                    } else if (c == '\u09AF') {
+                        r = "y";
+                    }
+                    j++;
+                }
+                if (j < n && w.charAt(j) == '\u09CD') {
+                    txt.add(r);
+                    typ.add(0);
+                    i = j + 1;
+                    continue;
+                }
+                int si = (j < n) ? VOW_S.indexOf(w.charAt(j)) : -1;
+                if (si >= 0) {
+                    txt.add(r + VOW_S_R[si]);
+                    typ.add(2);
+                    i = j + 1;
+                    continue;
+                }
+                txt.add(r);
+                typ.add(1);
+                i = j;
+                continue;
+            }
+            int vi = VOW_I.indexOf(c);
+            if (vi >= 0) {
+                txt.add(VOW_I_R[vi]);
+                typ.add(0);
+            } else if (c == '\u0982') {
+                txt.add("ng");
+                typ.add(0);
+            } else if (c == '\u0983') {
+                txt.add("h");
+                typ.add(0);
+            } else {
+                int di = DIG.indexOf(c);
+                if (di >= 0) {
+                    txt.add(String.valueOf(di));
+                    typ.add(0);
+                }
+            }
+            i++;
+        }
+        StringBuilder out = new StringBuilder();
+        boolean prevInh = false;
+        int m = txt.size();
+        for (int k = 0; k < m; k++) {
+            out.append(txt.get(k));
+            int ty = typ.get(k);
+            if (ty == 1) {
+                boolean last = (k == m - 1);
+                boolean drop = last || (k > 0 && prevInh && k + 1 < m && typ.get(k + 1) == 2);
+                if (!drop) {
+                    out.append('o');
+                }
+                prevInh = !drop;
+            } else {
+                prevInh = false;
+            }
+        }
+        return out.toString();
     }
 
     private StateListDrawable bg(String normal, String pressed) {
@@ -560,8 +844,3 @@ public class BanglaIME extends InputMethodService {
                 TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics());
     }
             }
-    
-        
-                
-
-                
