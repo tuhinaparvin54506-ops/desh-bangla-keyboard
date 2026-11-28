@@ -51,8 +51,8 @@ public class BanglaIME extends InputMethodService {
     private static final String C_ACCENT = "#7FCBBE";
     private static final String C_HINT = "#9AA5A3";
 
-    private int mode = BN;
-    private int prevMode = BN;
+    private int mode = EN;
+    private int prevMode = EN;
     private boolean shift = false;
     private boolean listening = false;
     private boolean voiceBar = false;
@@ -432,7 +432,7 @@ public class BanglaIME extends InputMethodService {
             trPreview.setText(trVoiceText);
             trPreview.setTextColor(Color.WHITE);
         } else {
-            trPreview.setText("বাংলা টাইপ করুন, Banglish লেখা হবে।");
+            trPreview.setText("মাইক টিপে বাংলা বলুন, Banglish লেখা হবে।");
             trPreview.setTextColor(Color.parseColor(C_HINT));
         }
     }
@@ -441,10 +441,6 @@ public class BanglaIME extends InputMethodService {
         trOn = true;
         bnBuf.setLength(0);
         trVoiceText = "";
-        if (mode != BN) {
-            mode = BN;
-            shift = false;
-        }
         render();
     }
 
@@ -505,7 +501,7 @@ public class BanglaIME extends InputMethodService {
     private String[] bottomRow() {
         String first = (mode == SYM) ? "<BACK>" : "<SYM>";
         String punct = (mode == BN) ? "\u0964" : ".";
-        return new String[]{first, ",", "<LANG>", "<SPACE>", punct, "<ENTER>"};
+        return new String[]{first, ",", "<SPACE>", punct, "<ENTER>"};
     }
 
     private int langTarget() {
@@ -798,8 +794,6 @@ public class BanglaIME extends InputMethodService {
         if (!voiceReady()) {
             return;
         }
-        int cur = (mode == SYM) ? prevMode : mode;
-        voiceLang = (cur == EN) ? VL_EN : VL_BN;
         voiceBar = true;
         startVoice();
     }
@@ -1072,6 +1066,5 @@ public class BanglaIME extends InputMethodService {
         return (int) TypedValue.applyDimension(
                 TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics());
     }
-            }
-     
+    }
 
