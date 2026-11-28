@@ -137,7 +137,7 @@ public class BanglaIME extends InputMethodService {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setLayoutParams(new LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT, dp(42)));
+                LinearLayout.LayoutParams.MATCH_PARENT, dp(mode == BN ? 36 : 52)));
         for (String k : keys) {
             row.addView(makeKey(k));
         }
@@ -165,7 +165,7 @@ public class BanglaIME extends InputMethodService {
         b.setTextColor(Color.BLACK);
         b.setGravity(Gravity.CENTER);
         boolean special = key.startsWith("<");
-        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, special ? 14 : 16);
+        b.setTextSize(TypedValue.COMPLEX_UNIT_SP, special ? 14 : (mode == EN ? 22 : 16));
         if (key.equals("<MIC>") && listening) {
             b.setBackground(bg("#FF9C9C", "#FF7777"));
         } else if (special) {
